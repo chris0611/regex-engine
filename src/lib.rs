@@ -11,6 +11,7 @@ pub enum Pattern {
     Alternation(Box<Alternation>),       // Alternation, e.g. "a|b"
     Group(Box<Pattern>),                 // Grouping, e.g. "(abc)"
     CharacterClass(Box<CharacterClass>), // Character class, e.g. "[a-z]"
+    PerlClass(Box<PerlClass>),           // Perl class, e.g. "\w", "\d" or "\s"
     Repetition(Box<Repetition>),         // Repetition, e.g. "a*", "a?" or "a{2,4}"
 }
 
@@ -25,6 +26,10 @@ impl Pattern {
 
     pub fn character_class(e: CharacterClass) -> Pattern {
         Pattern::CharacterClass(Box::new(e))
+    }
+
+    pub fn perl_class(e: PerlClass) -> Pattern {
+        Pattern::PerlClass(Box::new(e))
     }
 
     pub fn repetition(e: Repetition) -> Pattern {
@@ -66,6 +71,19 @@ impl Alternation {
 pub struct CharacterClass {
     pub ranges: Vec<CharacterRange>,
     pub negated: bool,
+}
+
+#[derive(Debug, Clone)]
+pub struct PerlClass {
+    pub kind: PerlClassKind,
+    pub negated: bool,
+}
+
+#[derive(Debug, Clone)]
+pub enum PerlClassKind {
+    Word,  // \w
+    Digit, // \d
+    Space, // \s
 }
 
 #[derive(Debug, Clone)]
@@ -141,6 +159,26 @@ fn matches<'a>(pat: &Pattern, input: &'a str) -> Vec<&'a str> {
                 }
             }
             vec![]
+        }
+        Pattern::PerlClass(class) => {
+            let mut results = vec![];
+
+            if let Some(c) = input.chars().next() {
+                let is_match = match (&class.kind, class.negated) {
+                    (PerlClassKind::Digit, false) => c.is_ascii_digit(),
+                    (PerlClassKind::Digit, true) => !c.is_ascii_digit(),
+                    (PerlClassKind::Word, false) => c.is_ascii_alphabetic() || c == '_',
+                    (PerlClassKind::Word, true) => !(c.is_ascii_alphabetic()  || c == '_'),
+                    (PerlClassKind::Space, false) => c.is_whitespace(),
+                    (PerlClassKind::Space, true) => !c.is_whitespace(),
+                };
+
+                if is_match {
+                    results.push(&input[c.len_utf8()..]);
+                }
+            }
+
+            results
         }
         Pattern::Repetition(repetition) => {
             let (min, max) = match repetition.kind {
@@ -365,6 +403,19 @@ fn parse_base(chars: &mut Peekable<impl Iterator<Item = char>>) -> Result<Patter
             ('[', false) => parse_class(chars),
             ('*' | '+' | '?' | ')' | '|' | '{', false) => {
                 Err(format!("Unexpected metacharacter '{}'", c))
+            }
+            ('w' | 'W' | 's' | 'S' | 'd' | 'D', true) => {
+                let (kind, negated) = match c {
+                    'w' => (PerlClassKind::Word, false),
+                    'W' => (PerlClassKind::Word, true),
+                    'd' => (PerlClassKind::Digit, false),
+                    'D' => (PerlClassKind::Digit, true),
+                    's' => (PerlClassKind::Space, false),
+                    'S' => (PerlClassKind::Space, true),
+                    _ => unreachable!(),
+                };
+
+                Ok(Pattern::perl_class(PerlClass { kind, negated }))
             }
             _ => Ok(Pattern::Literal(c)),
         };

@@ -1,8 +1,8 @@
 use regex_engine::match_pattern;
 
 fn main() {
-    let pattern = r"(a|)";
-    let input = "";
+    let pattern = r"\w+\d";
+    let input = "abcd2";
 
     println!("Pattern: {}", pattern);
     println!("Input: {}", input);
